@@ -41,24 +41,32 @@ on_death_screen = False
 attacking = False
 
 last_weapon_switch = 0
-weapon_switch_cooldown = 0.3
+weapon_switch_cooldown = 0.1
+
+# Aura Variable
+aura_damage = 2.5
+aura_size = (80, 80)
+aura_level = 0
+aura_hit_timers = {}
+aura_rotation = 0
 
 # Sword variables
+sword_damage = 10
 swinging_time = 0.3
 swing_time = time.time()
 swinging = False
 sword_cooldown = time.time()
-sword_cooldown_time = 0.8
+sword_cooldown_time = 0.4
 can_swing = True
 
 # XP system
 xp = 0
-xpgain = 5
 xp_orbs = []
 
 # Fireball system
 fireball_x = 0
 fireball_y = 0
+fireball_damage = 15
 fireball_size = (32, 40)
 fireball_level = 0
 fireball_amount = 3
@@ -69,14 +77,18 @@ fireball_cooldown = 0.5
 last_fireball_time = 0
 active_fireballs = []
 
-abilities = ["fireball", "heart", "knife"]
+abilities = ["fireball", "heart", "knife", "sword", "aura"]
 inventory = ["sword"]
 current_weapon = "sword"
 
-# Level up cards
+# Level up cards logic
 card1_ability = None
 card2_ability = None
 card3_ability = None
+card1_choice = None # Stores the random choice (True/False)
+card2_choice = None
+card3_choice = None
+
 card1_pos = WIDTH // 2 - 180
 card2_pos = WIDTH // 4 - 180
 card3_pos = WIDTH // 2 + 270
@@ -96,6 +108,7 @@ sword_swing_mask = pygame.mask.from_surface(sword_swing_sprite)
 
 sword_image = pygame.image.load("sprites/sword.png").convert_alpha()
 sword_sprite = pygame.transform.scale(sword_image, (20, 32))
+sword_icon = pygame.transform.scale_by(sword_image, 11.5)
 
 level_up_card_image = pygame.image.load("sprites/levelUpCard.png").convert_alpha()
 level_up_card = pygame.transform.scale(level_up_card_image, (320, 640))
@@ -116,6 +129,10 @@ fast_enemy_image = pygame.image.load("sprites/fastEnemy.png").convert_alpha()
 fast_enemy_sprite = pygame.transform.scale(fast_enemy_image, (30, 32))
 fast_enemy_mask = pygame.mask.from_surface(fast_enemy_sprite)
 
+fast_gold_enemy_image = pygame.image.load("sprites/fastEnemyGold.png").convert_alpha()
+fast_gold_enemy_sprite = pygame.transform.scale(fast_gold_enemy_image, (30, 32))
+fast_gold_enemy_mask = pygame.mask.from_surface(fast_enemy_sprite)
+
 tank_enemy_image = pygame.image.load("sprites/tankEnemy.png").convert_alpha()
 tank_enemy_sprite = pygame.transform.scale(tank_enemy_image, (48, 48))
 tank_enemy_mask = pygame.mask.from_surface(tank_enemy_sprite)
@@ -127,6 +144,16 @@ fireball_icon = pygame.transform.scale(fireball_image, (160, 200))
 retryButton_image = pygame.image.load("sprites/retryButton.png").convert_alpha()
 retryButton_sprite = pygame.transform.scale(retryButton_image, (384, 96))
 
+item_frame_image = pygame.image.load("sprites/item_frame.png").convert_alpha()
+item_frame_sprite = pygame.transform.scale_by(item_frame_image, 2)
+
+aura_image = pygame.image.load("sprites/aura.png").convert_alpha()
+aura_sprite = pygame.transform.scale_by(aura_image, 5)
+aura_mask = pygame.mask.from_surface(aura_sprite)
+aura_icon = pygame.transform.scale_by(aura_image, 11)
+
+magnet_image = pygame.image.load("sprites/magnet.png").convert_alpha()
+magnet_icon = pygame.transform.scale_by(magnet_image, 11)
 
 # Sounds
 
@@ -136,18 +163,57 @@ pickupXP_sfx.set_volume(0.3)
 enemyHit_sfx = pygame.mixer.Sound("sounds/enemyHit.wav")
 playerHit_sfx = pygame.mixer.Sound("sounds/playerHit.wav")
 
+
 enemies = []
-enemy_varients = ["normal", "fast", "tank", "normal", "normal", "normal", "fast"]
+enemy_variants = ["normal", "fast_gold"]
+spawn_weights = [99.999, 0.001]
 
 knives = []
 
 knife_level = 0
-
+sword_level = 0
+knife_cooldown = 0.5
+knife_damage = 2
 
 last_sword_target_index = None
 last_attack_time = 0
 attack_delay = 0.1
-knife_damage = 2.5
+
+def draw_aura(enemies):
+    global aura_rotation
+    aura_rotation += 1
+    if aura_level > 0:
+        rotated_aura = pygame.transform.rotate(aura_sprite, aura_rotation)
+
+        rotated_mask = pygame.mask.from_surface(rotated_aura)
+        
+        player_center_x = plr_x + (32 / 2)
+        player_center_y = plr_y + (32 / 2)
+        
+        aura_rect = rotated_aura.get_rect(center=(player_center_x, player_center_y))
+        
+        window.blit(rotated_aura, aura_rect)
+
+        now = time.time()
+        for i, enemy in enumerate(enemies):
+            enemy_x, enemy_y = enemy[0], enemy[1]
+            
+            
+            variant = enemy[6]
+            if variant == "normal": cur_mask = enemy_mask
+            elif variant == "tank": cur_mask = tank_enemy_mask
+            elif variant == "fast_gold": cur_mask = fast_gold_enemy_mask
+            else: cur_mask = fast_enemy_mask
+
+            offset_x = enemy_x - aura_rect.x
+            offset_y = enemy_y - aura_rect.y
+            
+            if rotated_mask.overlap(cur_mask, (offset_x, offset_y)):
+                if i not in aura_hit_timers or now - aura_hit_timers[i] > 0.6:
+                    enemy[3] -= aura_damage
+                    damage_text(aura_damage, enemy_x, enemy_y)
+                    enemyHit_sfx.play()
+                    aura_hit_timers[i] = now
 
 def spawn_knife(plr_x, plr_y, angle):
     knives.append([plr_x + 16, plr_y + 16, angle, 0, pygame.time.get_ticks(), knife_sprite.copy(), True, 0, 0, 'orbiting', None, time.time()])
@@ -169,7 +235,7 @@ def knife_attack(enemies):
     if now - last_attack_time < attack_delay:
         return
     for knife in knives:
-        if knife[9] == 'orbiting' and now > knife[11] + 0.2:
+        if knife[9] == 'orbiting' and now > knife[11] + knife_cooldown:
             closest_enemy = None
             closest_dist = 300
             for i, (ex, ey, *_) in enumerate(enemies):
@@ -260,8 +326,6 @@ def draw_knives():
             knife[5].set_alpha(alpha)
         window.blit(knife[5], (knife[0], knife[1]))
 
-
-
 def cheats():
     global xp
     keys = pygame.key.get_pressed()
@@ -269,23 +333,37 @@ def cheats():
         xp += 100
 
 def reset_level_up_cards():
-    global card1_ability, card2_ability, card3_ability
+    global card1_ability, card2_ability, card3_ability, card1_choice, card2_choice, card3_choice
     card1_ability = None
     card2_ability = None
     card3_ability = None
+    card1_choice = random.choice([0, 1, 2])
+    card2_choice = random.choice([0, 1, 2])
+    card3_choice = random.choice([0, 1, 2])
 
 
 def spawn_enemy():
-    varient = random.choice(enemy_varients)
+    varient = random.choices(enemy_variants, weights=spawn_weights, k=1)[0]
     if varient == "normal":
         health = 20
         speed = 1
+        damage = 10
+        xp_drop = 4
     elif varient == "fast":
         health = 10
         speed = 2
+        damage = 8
+        xp_drop = 3
     elif varient == "tank":
         health = 45
         speed = 0.5
+        damage = 15
+        xp_drop = 8
+    elif varient == "fast_gold":
+        health = 20
+        speed = 4
+        damage = 15
+        xp_drop = 100
     side = random.choice(['bottom', 'left', 'right', 'left', 'right', 'left', 'right'])
 
     if side == 'bottom':
@@ -299,7 +377,7 @@ def spawn_enemy():
         enemy_y = random.randint(0, HEIGHT)
 
     enemy_is_facing_right = enemy_x < plr_x
-    enemies.append([enemy_x, enemy_y, enemy_is_facing_right, health, 0, 0, varient, speed])  
+    enemies.append([enemy_x, enemy_y, enemy_is_facing_right, health, 0, 0, varient, speed, damage, xp_drop])  
 
 
 def spawn_first_enemies():
@@ -307,8 +385,8 @@ def spawn_first_enemies():
     for _ in range(initial_enemy_count):
         spawn_enemy()
 
-def spawn_xp(enemy_x, enemy_y):
-    xp_orbs.append([enemy_x, enemy_y])
+def spawn_xp(enemy_x, enemy_y, xp_drop):
+    xp_orbs.append([enemy_x, enemy_y, xp_drop])
 
 
 def draw_health_bar(health, x, y):
@@ -335,69 +413,123 @@ def draw_xp_bar():
     pygame.draw.rect(window, (0, 0, 0), outline_rect, 5)
 
 
-def fireball_level_up(card_pos):
-    level_text = font.render(f"LVL:{fireball_level}→{fireball_level + 1}", True, (255, 255, 255))
-    level_rect = level_text.get_rect(center=(card_pos - 24 + 180, HEIGHT // 2))
+def fireball_level_up(card_pos, choice):
+    name_text = font.render(f"Fireball", True, (255, 255, 255))
+    name_rect = name_text.get_rect(center=(card_pos - 24 + 180, HEIGHT // 2))
 
-    info_text1 = level_font.render("   Increase size and", True, (255, 255, 255))
-    info_text2 = level_font.render("lower cooldown", True, (255, 255, 255))
+    level_text = font.render(f"LVL:{fireball_level} -> {fireball_level + 1}", True, (255, 255, 255))
+    level_rect = level_text.get_rect(center=(card_pos - 24 + 180, HEIGHT // 2 + 50))
 
-    info_rect1 = info_text1.get_rect(center=(card_pos - 50 + 180, HEIGHT // 2 + 50))
-    info_rect2 = info_text2.get_rect(center=(card_pos - 50 + 180, HEIGHT // 2 + 80))
+    if choice == 0:
+        info_text1 = level_font.render("   Increase size", True, (255, 255, 255))
+    elif choice == 1:
+        info_text1 = level_font.render("   Lower cooldown", True, (255, 255, 255))
+    else:
+        info_text1 = level_font.render("   Increase damage", True, (255, 255, 255))
+
+    info_rect1 = info_text1.get_rect(center=(card_pos - 50 + 180, HEIGHT // 2 + 100))
 
     window.blit(info_text1, info_rect1)
-    window.blit(info_text2, info_rect2)
-
     window.blit(fireball_icon, (card_pos - 100 + 180, HEIGHT // 2 - 260))
     window.blit(level_text, level_rect)
+    window.blit(name_text, name_rect)
 
-def health_card(card_pos):
+def health_card(card_pos, choice):
     level_text = font.render(f"Health", True, (255, 255, 255))
     level_rect = level_text.get_rect(center=(card_pos - 24 + 180, HEIGHT // 2))
-
-
     info_text1 = level_font.render("    Heals +40 health", True, (255, 255, 255))
-
     info_rect1 = info_text1.get_rect(center=(card_pos - 50 + 180, HEIGHT // 2 + 50))
-
     window.blit(info_text1, info_rect1)
-
     window.blit(heart_icon, (card_pos - 100 + 180, HEIGHT // 2 - 260))
     window.blit(level_text, level_rect)
 
-def knife_card(card_pos):
-    level_text = font.render(f"LVL:{knife_level}→{knife_level + 1}", True, (255, 255, 255))
-    level_rect = level_text.get_rect(center=(card_pos - 24 + 180, HEIGHT // 2))
+def knife_card(card_pos, choice):
+    name_text = font.render(f"Knife", True, (255, 255, 255))
+    name_rect = name_text.get_rect(center=(card_pos - 24 + 180, HEIGHT // 2))
 
+    level_text = font.render(f"LVL:{knife_level} -> {knife_level + 1}", True, (255, 255, 255))
+    level_rect = level_text.get_rect(center=(card_pos - 24 + 180, HEIGHT // 2 + 50))
 
     if knife_level == 0:
-        text = "    It protects you"
-    elif knife_level < 4:
-        text = "    +1 knife"
-    elif knife_level < 7:
-        text = "    +2.5 Damage"
+        text = "    Spawn a knife that protects you"
+    elif choice % 2 == 0:
+        if len(knives) < 4:
+            text = "    +1 knife (Max 4)"
+        else:
+            text = "    Lower knife cooldown"
     else:
-        text = "    +1 Damage"
+        text = "    +2.5 Knife Damage"
 
     info_text1 = level_font.render(text, True, (255, 255, 255))
-
-    info_rect1 = info_text1.get_rect(center=(card_pos - 50 + 180, HEIGHT // 2 + 50))
+    info_rect1 = info_text1.get_rect(center=(card_pos - 50 + 180, HEIGHT // 2 + 100))
 
     window.blit(info_text1, info_rect1)
-
     window.blit(knife_icon, (card_pos - 75 + 180, HEIGHT // 2 - 260))
     window.blit(level_text, level_rect)
+    window.blit(name_text, name_rect)
 
+def sword_card(card_pos, choice):
+    name_text = font.render(f"Sword", True, (255, 255, 255))
+    name_rect = name_text.get_rect(center=(card_pos - 24 + 180, HEIGHT // 2))
 
+    level_text = font.render(f"LVL:{sword_level} -> {sword_level + 1}", True, (255, 255, 255))
+    level_rect = level_text.get_rect(center=(card_pos - 24 + 180, HEIGHT // 2 + 50))
 
+    if choice % 2 == 0:
+        text = "    +3 Sword Damage"
+    else:
+        text = "    Faster Swing Speed"
 
-def check_ability(card_pos, ability):
+    info_text1 = level_font.render(text, True, (255, 255, 255))
+    info_rect1 = info_text1.get_rect(center=(card_pos - 50 + 180, HEIGHT // 2 + 100))
+
+    window.blit(info_text1, info_rect1)
+    window.blit(sword_icon, (card_pos - 100 + 180, HEIGHT // 2 - 260))
+    window.blit(level_text, level_rect)
+    window.blit(name_text, name_rect)
+
+def aura_card(card_pos, choice):
+    name_text = font.render(f"Aura", True, (255, 255, 255))
+    name_rect = name_text.get_rect(center=(card_pos - 24 + 180, HEIGHT // 2))
+
+    level_text = font.render(f"LVL:{aura_level} -> {aura_level + 1}", True, (255, 255, 255))
+    level_rect = level_text.get_rect(center=(card_pos - 24 + 180, HEIGHT // 2 + 50))
+
+    if aura_level == 0:
+        text = "    Have a deadly aura"
+    elif choice % 2 == 0:
+        text = "    Increase Aura size"
+    else:
+        text = "    Increase Aura damage"
+
+    info_text1 = level_font.render(text, True, (255, 255, 255))
+    info_rect1 = info_text1.get_rect(center=(card_pos - 50 + 180, HEIGHT // 2 + 100))
+
+    window.blit(info_text1, info_rect1)
+    window.blit(aura_icon, (card_pos - 100 + 180, HEIGHT // 2 - 260))
+    window.blit(level_text, level_rect)
+    window.blit(name_text, name_rect)
+
+def health_card(card_pos, choice):
+    level_text = font.render(f"Health", True, (255, 255, 255))
+    level_rect = level_text.get_rect(center=(card_pos - 24 + 180, HEIGHT // 2))
+    info_text1 = level_font.render("    Heals +40 health", True, (255, 255, 255))
+    info_rect1 = info_text1.get_rect(center=(card_pos - 50 + 180, HEIGHT // 2 + 50))
+    window.blit(info_text1, info_rect1)
+    window.blit(heart_icon, (card_pos - 100 + 180, HEIGHT // 2 - 260))
+    window.blit(level_text, level_rect)
+
+def check_ability(card_pos, ability, choice):
     if ability == "fireball":
-        fireball_level_up(card_pos)
+        fireball_level_up(card_pos, choice)
     if ability == "heart":
-        health_card(card_pos)
+        health_card(card_pos, choice)
     if ability == "knife":
-        knife_card(card_pos)
+        knife_card(card_pos, choice)
+    if ability == "sword":
+        sword_card(card_pos, choice)
+    if ability == "aura":
+        aura_card(card_pos, choice)
 
 
 def draw_card1():
@@ -409,7 +541,7 @@ def draw_card1():
 
     window.blit(level_up_card, (card1_pos, HEIGHT // 2 - 320))
     if card1_ability:
-        check_ability(card1_pos, card1_ability)
+        check_ability(card1_pos, card1_ability, card1_choice)
 
 
 def draw_card2():
@@ -421,7 +553,7 @@ def draw_card2():
 
     window.blit(level_up_card, (card2_pos, HEIGHT // 2 - 320))
     if card2_ability:
-        check_ability(card2_pos, card2_ability)
+        check_ability(card2_pos, card2_ability, card2_choice)
 
 
 def draw_card3():
@@ -433,45 +565,64 @@ def draw_card3():
 
     window.blit(level_up_card, (card3_pos, HEIGHT // 2 - 320))
     if card3_ability:
-        check_ability(card3_pos, card3_ability)
+        check_ability(card3_pos, card3_ability, card3_choice)
 
 
-def level_up_ability_check(selected_card):
-    global plr_health, fireball_level, fireball_regen_time, fireball_size, fireball_cooldown, inventory, knife_level, knife_damage
+def level_up_ability_check(selected_card, choice):
+    global aura_sprite, aura_mask, fireball_mask, aura_damage, aura_level, aura_size, sword_level, sword_damage, plr_health, fireball_level, fireball_regen_time, fireball_size, fireball_cooldown, inventory, knife_level, knife_damage, sword_cooldown_time, fireball_damage, knife_cooldown
 
-    if selected_card == card1_pos and card1_ability == "fireball" or \
-        selected_card == card2_pos and card2_ability == "fireball" or \
-        selected_card == card3_pos and card3_ability == "fireball":
+    ability = None
+    if selected_card == card1_pos: ability = card1_ability
+    elif selected_card == card2_pos: ability = card2_ability
+    elif selected_card == card3_pos: ability = card3_ability
 
+    if ability == "fireball":
         if "fireball" not in inventory:
             inventory.append("fireball")
-
         fireball_level += 1
-        if fireball_regen_time > 3:
-            fireball_regen_time -= 0.5
-        fireball_size = (fireball_size[0] + 8, fireball_size[1] + 10)
-        fireball_cooldown = max(0.1, fireball_cooldown - 0.05)
-
-
-    if selected_card == card1_pos and card1_ability == "heart" or \
-        selected_card == card2_pos and card2_ability == "heart" or \
-        selected_card == card3_pos and card3_ability == "heart":
+        if choice == 0:
+            fireball_size = (fireball_size[0] + 12, fireball_size[1] + 15)
+        elif choice == 1:
+            fireball_regen_time = max(1, fireball_regen_time - 1)
+            fireball_cooldown = max(0.1, fireball_cooldown - 0.1)
+        else:
+            fireball_damage += 10
         
+        temp_fire = pygame.transform.scale(fireball_image, fireball_size)
+        fireball_mask = pygame.mask.from_surface(temp_fire)
 
+    if ability == "heart":
         plr_health += 40
 
-    if selected_card == card1_pos and card1_ability == "knife" or \
-        selected_card == card2_pos and card2_ability == "knife" or \
-        selected_card == card3_pos and card3_ability == "knife":
-            if knife_level < 4:
-                spawn_knife(plr_x, plr_y, knife_level * 22)
-            elif knife_level < 7:
-                knife_damage += 2.5
+    if ability == "knife":
+        if knife_level == 0:
+            spawn_knife(plr_x, plr_y, 0)
+        elif choice % 2 == 0:
+            if len(knives) < 4:
+                spawn_knife(plr_x, plr_y, len(knives) * 90)
             else:
-                knife_damage += 1
-            knife_level += 1
-        
+                knife_cooldown = max(0.1, knife_cooldown - 0.1)
+        else:
+            knife_damage += 2
+        knife_level += 1
 
+    if ability == "sword":
+        if choice % 2 == 0:
+            sword_damage += 2.5
+        else:
+            sword_cooldown_time = max(0.1, sword_cooldown_time - 0.05)
+        sword_level += 1
+
+    if ability == "aura":
+        if aura_level > 0:
+            if choice % 2 == 0:
+                aura_size = (aura_size[0] + 18, aura_size[1] + 18)
+                aura_sprite = pygame.transform.scale(aura_image, aura_size)
+                aura_mask = pygame.mask.from_surface(aura_sprite)
+            else:
+                aura_damage += 1
+        aura_level += 1
+        
 
 def normalize(enemy_x, enemy_y):
     distance = math.sqrt((plr_x - enemy_x) ** 2 + (plr_y - enemy_y) ** 2)
@@ -516,7 +667,7 @@ def player_apply_knockback(enemy_x, enemy_y):
     knockback_velocity_y = dy * knockback_distance
 
 
-def enemy_hit_knockback(enemy_x, enemy_y):
+def enemy_hit_knockback(enemy_x, enemy_y, knockback_distance=6):
     dx = enemy_x - plr_x
     dy = enemy_y - plr_y
     distance = math.hypot(dx, dy)
@@ -524,7 +675,6 @@ def enemy_hit_knockback(enemy_x, enemy_y):
         return 0, 0
     dx /= distance
     dy /= distance
-    knockback_distance = 6
     return dx * knockback_distance, dy * knockback_distance
 
 
@@ -670,22 +820,37 @@ def draw_current_weapon():
 
 
 def draw_weapon_ui():
-    weapons_text = level_font.render("Weapons:", True, (0, 0, 0))
-    window.blit(weapons_text, (10, 60))
-
+    ammo_texts = []
     for i, weapon in enumerate(inventory):
-        if weapon == current_weapon:
-            color = (255, 255, 0)
+        if weapon != current_weapon:
+            window.blit(item_frame_sprite, (0, 90 + i * 80))
+            if weapon == "sword":
+                window.blit(pygame.transform.scale_by(sword_sprite, 1.5), (19, 100 + i * 80))
+            if weapon == "fireball":
+                window.blit(pygame.transform.scale_by(fireball_image, 2.5), (12, 100 + i * 80))
         else:
-            color = (255, 255, 255)
+            window.blit(pygame.transform.rotate(pygame.transform.scale_by(item_frame_sprite, 1.1), -4), (3, 90 + i * 80))
+            if weapon == "sword":
+                window.blit(pygame.transform.rotate(pygame.transform.scale_by(sword_sprite, 1.6), -4), (22, 100 + i * 80))
+            if weapon == "fireball":
+                window.blit(pygame.transform.rotate(pygame.transform.scale_by(fireball_image, 2.8), -6), (15, 96 + i * 80))
 
-        weapon_text = level_font.render(f"{i + 1}: {weapon.capitalize()}", True, color)
-        window.blit(weapon_text, (10, 90 + i * 30))
-
+        
         if weapon == "fireball" and weapon == current_weapon:
             ammo_text = level_font.render(
-                f"Ammo: {fireball_amount}/{fireball_max_amount}", True, color)
-            window.blit(ammo_text, (200, 90 + i * 30))
+                f"{fireball_amount}/{fireball_max_amount}", True, (255, 255, 255))
+            stroke = level_font.render(
+                f"{fireball_amount}/{fireball_max_amount}", True, (0, 0, 0))
+            ammo_texts.append([ammo_text, stroke, 42, 140 + i * 80])
+
+            for text in ammo_texts[:]:
+                text_surface, stroke_surface, x, y = text
+
+                for dx in [-1, 1, 0, 0]:
+                    for dy in [-1, 1, 0, 0]:
+                        window.blit(pygame.transform.rotate(stroke_surface, -4), (x + dx, y + dy))
+
+                window.blit(pygame.transform.rotate(text_surface, -4), (x, y))
 
 
 def update_player():
@@ -736,7 +901,7 @@ def update_xp_orbs():
     global xp, xp_orbs
 
     for i in range(len(xp_orbs) - 1, -1, -1):
-        xp_x, xp_y = xp_orbs[i]
+        xp_x, xp_y, xp_drop = xp_orbs[i]
 
         distance = math.sqrt((plr_x - xp_x) ** 2 + (plr_y - xp_y) ** 2)
 
@@ -751,10 +916,10 @@ def update_xp_orbs():
 
         if player_mask.overlap(xp_mask, (xp_x - plr_x, xp_y - plr_y)):
             pickupXP_sfx.play()
-            xp += xpgain
+            xp += xp_drop
             xp_orbs.pop(i)
         else:
-            xp_orbs[i] = [xp_x, xp_y]
+            xp_orbs[i] = [xp_x, xp_y, xp_drop]
 
 
 damage_texts = []
@@ -787,10 +952,10 @@ def render_damage_text():
 enemy_hit_timers = {}
 
 def update_enemies():
-    global enemies, plr_health, last_hit_time, sword_hit
+    global enemies, plr_health, last_hit_time, sword_hit, sword_damage
 
     for i in range(len(enemies) - 1, -1, -1):
-        enemy_x, enemy_y, enemy_is_facing_right, enemy_health, enemy_vx, enemy_vy, enemy_varient, enemy_speed = enemies[i]
+        enemy_x, enemy_y, enemy_is_facing_right, enemy_health, enemy_vx, enemy_vy, enemy_varient, enemy_speed, enemy_damage, xp_drop = enemies[i]
 
         dx, dy = normalize(enemy_x, enemy_y)
         sep_force_x, sep_force_y = separation(i)
@@ -800,17 +965,18 @@ def update_enemies():
         enemy_x += dx * enemy_speed
         enemy_y += dy * enemy_speed
 
-        
-
         if enemy_varient == "normal":
             cur_enemy_mask = enemy_mask
             cur_enemy_sprite = enemy_sprite
         elif enemy_varient == "fast":
             cur_enemy_mask = fast_enemy_mask
             cur_enemy_sprite = fast_enemy_sprite
-        if enemy_varient == "tank":
+        elif enemy_varient == "tank":
             cur_enemy_mask = tank_enemy_mask
             cur_enemy_sprite = tank_enemy_sprite
+        elif enemy_varient == "fast_gold":
+            cur_enemy_mask = fast_gold_enemy_mask
+            cur_enemy_sprite = fast_gold_enemy_sprite
 
         window.blit(
             pygame.transform.flip(cur_enemy_sprite, True, False)
@@ -821,11 +987,11 @@ def update_enemies():
         for j in range(len(active_fireballs) - 1, -1, -1):
             fireball = active_fireballs[j]
             if fireball_mask.overlap(cur_enemy_mask, (enemy_x - fireball["x"], enemy_y - fireball["y"])) and i not in fireball["hit_enemies"]:
-                damage_text(15, enemy_x, enemy_y)
+                damage_text(fireball_damage, enemy_x, enemy_y)
                 enemyHit_sfx.play()
                 fireball["hit_enemies"].add(i)
                 enemy_vx, enemy_vy = enemy_hit_knockback(enemy_x, enemy_y)
-                enemy_health -= 15
+                enemy_health -= fireball_damage
                 fireball["enemies_hit"] += 1
                 if fireball["enemies_hit"] >= 20:
                     active_fireballs.pop(j)
@@ -835,8 +1001,8 @@ def update_enemies():
             enemyHit_sfx.play()
             sword_hit_enemies.add(i)
             enemy_vx, enemy_vy = enemy_hit_knockback(enemy_x, enemy_y)
-            damage_text(10, enemy_x, enemy_y)
-            enemy_health -= 10
+            damage_text(sword_damage, enemy_x, enemy_y)
+            enemy_health -= sword_damage
 
         for knife in knives:
             if knife[9] == 'attacking' and knife_mask.overlap(cur_enemy_mask, (int(knife[0] - enemy_x), int(knife[1] - enemy_y))):
@@ -845,7 +1011,7 @@ def update_enemies():
                     enemyHit_sfx.play()
                     damage_text(knife_damage, enemy_x, enemy_y)
                     enemy_health -= knife_damage
-                    enemy_vx, enemy_vy = enemy_hit_knockback(enemy_x, enemy_y)
+                    enemy_vx, enemy_vy = enemy_hit_knockback(enemy_x, enemy_y, 2)
                     enemy_hit_timers[i] = now
                     
                     if knife[10] == i:
@@ -863,43 +1029,43 @@ def update_enemies():
                     knife[8] = 0
                     
             enemies.pop(i)
-            spawn_xp(enemy_x, enemy_y)
+            spawn_xp(enemy_x, enemy_y, xp_drop)
             continue
 
         if player_mask.overlap(cur_enemy_mask, (plr_x - enemy_x, plr_y - enemy_y)):
             if time.time() - last_hit_time > 1:
                 playerHit_sfx.play()
-                plr_health -= 10
+                plr_health -= enemy_damage
+                damage_text(enemy_damage, plr_x, plr_y)
                 player_apply_knockback(enemy_x, enemy_y)
                 last_hit_time = time.time()
-                return last_hit_time
 
         enemy_vx *= 0.9
         enemy_vy *= 0.9
 
         enemy_x += enemy_vx
         enemy_y += enemy_vy
-        enemies[i] = [enemy_x, enemy_y, enemy_is_facing_right, enemy_health, enemy_vx, enemy_vy, enemy_varient, enemy_speed]
+        enemies[i] = [enemy_x, enemy_y, enemy_is_facing_right, enemy_health, enemy_vx, enemy_vy, enemy_varient, enemy_speed, enemy_damage, xp_drop]
 
 def update_difficulty():
-    global enemy_spawn_speed, xpgain
+    global enemy_spawn_speed, enemy_variants, spawn_weights
 
     elapsed_time = time.time() - difficulty_start_time
 
     if elapsed_time > 300:
         enemy_spawn_speed = 0.15
-        xpgain = 2.5
     elif elapsed_time > 150:
-        enemy_spawn_speed = 0.25
-        xpgain = 3
+        enemy_spawn_speed = 0.45
+        enemy_variants = ["normal", "fast_gold", "fast", "tank"]
+        spawn_weights = [65, 0.001, 26.999, 8]
     elif elapsed_time > 100:
-        enemy_spawn_speed = 0.3
-        xpgain = 3.5
+        enemy_spawn_speed = 0.7
     elif elapsed_time > 50:
-        enemy_spawn_speed = 0.8
-        xpgain = 4
+        enemy_spawn_speed = 1
+        enemy_variants = ["normal", "fast_gold", "fast"]
+        spawn_weights = [70, 0.001, 29.999]
     elif elapsed_time > 20:
-        enemy_spawn_speed = 1.2
+        enemy_spawn_speed = 1.4
 
 
 def handle_input():
@@ -935,32 +1101,29 @@ def handle_level_up_screen():
             if event.button == 1:
                 if card1_pos <= mouse_x <= card1_pos + 320 and \
                         HEIGHT // 2 - 320 <= mouse_y <= HEIGHT // 2 + 320:
+                    level_up_ability_check(card1_pos, card1_choice)
                     xp = 0
-                    level_up_ability_check(card1_pos)
                     click_sfx.play()
-                    time.sleep(0.1)
                     on_level_up_screen = False
 
                 if card2_pos <= mouse_x <= card2_pos + 320 and \
                         HEIGHT // 2 - 320 <= mouse_y <= HEIGHT // 2 + 320:
+                    level_up_ability_check(card2_pos, card2_choice)
                     xp = 0
-                    level_up_ability_check(card2_pos)
                     click_sfx.play()
-                    time.sleep(0.1)
                     on_level_up_screen = False
 
                 if card3_pos <= mouse_x <= card3_pos + 320 and \
                         HEIGHT // 2 - 320 <= mouse_y <= HEIGHT // 2 + 320:
+                    level_up_ability_check(card3_pos, card3_choice)
                     xp = 0
-                    level_up_ability_check(card3_pos)
                     click_sfx.play()
-                    time.sleep(0.1)
                     on_level_up_screen = False
 
 
 def draw_game():
     window.fill((85, 170, 0))
-
+    draw_aura(enemies)
     draw_xp_bar()
     draw_health_bar(plr_health, plr_x, plr_y + 40)
 
@@ -975,7 +1138,7 @@ def draw_game():
     time_rect = time_text.get_rect(center=(WIDTH // 2, 100))
     window.blit(time_text, time_rect)
 
-    draw_weapon_ui()
+    
 
 
 def update_game_state():
@@ -985,7 +1148,6 @@ def update_game_state():
         plr_health = 100
     
     if plr_health <= 0:
-        death_screen()
         on_death_screen = True
         
 
@@ -1003,7 +1165,6 @@ def update_game_state():
 
     global swinging, swing_time, can_swing, sword_cooldown
     if swinging and time.time() - swing_time > swinging_time:
-        sword_hit = False
         swinging = False
 
     if time.time() - sword_cooldown > sword_cooldown_time:
@@ -1016,12 +1177,23 @@ def update_game_state():
         attack()
 
 def restartGame():
-    global enemies, inventory, knives, plr_x, plr_y, active_fireballs, current_weapon, plr_health
+    global xp_orbs, spawn_weights, enemy_variants, second, time_passed, enemies, inventory, knives, plr_x, plr_y, active_fireballs, fireball_regen_time, current_weapon, plr_health, xp, knife_level, sword_level, aura_level, fireball_level
 
     enemies.clear()
     inventory.clear()
     knives.clear()
     active_fireballs.clear()
+    xp_orbs = []
+    second = 0
+    xp = 0
+    knife_level = 0
+    sword_level = 0
+    aura_level = 0
+    fireball_level = 0
+    fireball_regen_time = 12
+    time_passed = time.time()
+    enemy_variants = ["normal", "fast_gold"]
+    spawn_weights = [99.999, 0.001]
     inventory = ["sword"]
     current_weapon = "sword"
     plr_health = 100
@@ -1059,9 +1231,6 @@ def death_screen():
 spawn_first_enemies()
 
 while running:
-    fireball = pygame.transform.scale(fireball_image, fireball_size)
-    fireball_mask = pygame.mask.from_surface(fireball)
-
     if on_level_up_screen:
         handle_level_up_screen()
     elif on_death_screen:
@@ -1069,6 +1238,7 @@ while running:
     else:
         handle_input()
         update_game_state()
+        
         draw_game()
         update_xp_orbs()
         update_enemies()
@@ -1076,8 +1246,10 @@ while running:
         knife_attack(enemies)
         update_knives(enemies, plr_x, plr_y)
         rotate_knife(plr_x, plr_y)
+        
         draw_knives()
         render_damage_text()
+        draw_weapon_ui()
         cheats()
 
     pygame.display.update()
