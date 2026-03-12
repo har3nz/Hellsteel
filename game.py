@@ -77,9 +77,13 @@ fireball_cooldown = 0.5
 last_fireball_time = 0
 active_fireballs = []
 
-abilities = ["fireball", "heart", "knife", "sword", "aura"]
+abilities = ["fireball", "heart", "knife", "sword", "aura", "magnet"]
 inventory = ["sword"]
 current_weapon = "sword"
+
+magnet_range = 80
+magnet_level = 0
+magnet_pull_speed = 3.5
 
 # Level up cards logic
 card1_ability = None
@@ -510,13 +514,13 @@ def aura_card(card_pos, choice):
     window.blit(level_text, level_rect)
     window.blit(name_text, name_rect)
 
-def health_card(card_pos, choice):
-    level_text = font.render(f"Health", True, (255, 255, 255))
+def magnet_card(card_pos, choice):
+    level_text = font.render(f"Magnet", True, (255, 255, 255))
     level_rect = level_text.get_rect(center=(card_pos - 24 + 180, HEIGHT // 2))
-    info_text1 = level_font.render("    Heals +40 health", True, (255, 255, 255))
+    info_text1 = level_font.render("    Increases pick-up range", True, (255, 255, 255))
     info_rect1 = info_text1.get_rect(center=(card_pos - 50 + 180, HEIGHT // 2 + 50))
     window.blit(info_text1, info_rect1)
-    window.blit(heart_icon, (card_pos - 100 + 180, HEIGHT // 2 - 260))
+    window.blit(magnet_icon, (card_pos - 100 + 180, HEIGHT // 2 - 260))
     window.blit(level_text, level_rect)
 
 def check_ability(card_pos, ability, choice):
@@ -530,6 +534,8 @@ def check_ability(card_pos, ability, choice):
         sword_card(card_pos, choice)
     if ability == "aura":
         aura_card(card_pos, choice)
+    if ability == "magnet":
+        magnet_card(card_pos, choice)
 
 
 def draw_card1():
@@ -569,7 +575,7 @@ def draw_card3():
 
 
 def level_up_ability_check(selected_card, choice):
-    global aura_sprite, aura_mask, fireball_mask, aura_damage, aura_level, aura_size, sword_level, sword_damage, plr_health, fireball_level, fireball_regen_time, fireball_size, fireball_cooldown, inventory, knife_level, knife_damage, sword_cooldown_time, fireball_damage, knife_cooldown
+    global magnet_pull_speed, magnet_level, magnet_range, aura_sprite, aura_mask, fireball_mask, aura_damage, aura_level, aura_size, sword_level, sword_damage, plr_health, fireball_level, fireball_regen_time, fireball_size, fireball_cooldown, inventory, knife_level, knife_damage, sword_cooldown_time, fireball_damage, knife_cooldown
 
     ability = None
     if selected_card == card1_pos: ability = card1_ability
@@ -622,7 +628,11 @@ def level_up_ability_check(selected_card, choice):
             else:
                 aura_damage += 1
         aura_level += 1
-        
+    
+    if ability == "magnet":
+        magnet_level += 1
+        magnet_range += 25
+        magnet_pull_speed += 0.5
 
 def normalize(enemy_x, enemy_y):
     distance = math.sqrt((plr_x - enemy_x) ** 2 + (plr_y - enemy_y) ** 2)
@@ -905,10 +915,10 @@ def update_xp_orbs():
 
         distance = math.sqrt((plr_x - xp_x) ** 2 + (plr_y - xp_y) ** 2)
 
-        if distance < 120:
+        if distance < magnet_range:
             if distance > 1:
-                xp_orb_dx = (plr_x - xp_x) / distance * 3.5
-                xp_orb_dy = (plr_y - xp_y) / distance * 3.5
+                xp_orb_dx = (plr_x - xp_x) / distance * magnet_pull_speed
+                xp_orb_dy = (plr_y - xp_y) / distance * magnet_pull_speed
                 xp_x += xp_orb_dx
                 xp_y += xp_orb_dy
 
